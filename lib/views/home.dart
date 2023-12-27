@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:io';
 
 import 'package:casa/common/app_colors.dart';
@@ -9,6 +11,8 @@ import 'package:casa/widgets/custom_app_bar.dart';
 import 'package:casa/widgets/profile_item.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/user.dart';
@@ -27,13 +31,17 @@ class _HomeState extends State<Home> {
   File? profilePicture;
   ImageSource? source;
 
+  String? currentAddress;
+  Position? currentPosition;
+
   @override
   void initState() {
     super.initState();
-    userData = getUserData();
+    userData = _getUserData();
+    _getCurrentPosition();
   }
 
-  Future<User> getUserData() async {
+  Future<User> _getUserData() async {
     setState(() {
       loading = true;
     });
@@ -49,12 +57,12 @@ class _HomeState extends State<Home> {
     }
   }
 
-  String getAddress(Address address) {
+  String _getAddress(Address address) {
     List list = [address.street, address.street, address.city, address.zipcode];
     return list.join(", ");
   }
 
-  getPic() async {
+  _getPic() async {
     Navigator.pop(context);
     if (source != null) {
       File? pic = await AppUtils.pickImage(source ?? ImageSource.gallery);
@@ -65,7 +73,7 @@ class _HomeState extends State<Home> {
     }
   }
 
-  showPickerOptions(BuildContext context) async {
+  _showPickerOptions(BuildContext context) async {
     return showDialog<void>(
       context: context,
       builder: (BuildContext context) {
@@ -81,7 +89,7 @@ class _HomeState extends State<Home> {
                   title: const Text('Gallery'),
                   onTap: () {
                     source = ImageSource.gallery;
-                    getPic();
+                    _getPic();
                   },
                 ),
                 ListTile(
@@ -89,7 +97,7 @@ class _HomeState extends State<Home> {
                   title: const Text('Camera'),
                   onTap: () {
                     source = ImageSource.camera;
-                    getPic();
+                    _getPic();
                   },
                 ),
               ],
@@ -100,12 +108,75 @@ class _HomeState extends State<Home> {
     );
   }
 
+  Future<bool> handleLocationPermission() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Location services are disabled. Please enable the services')));
+      return false;
+    }
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permissions are denied')));
+        return false;
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Location permissions are permanently denied, we cannot request permissions.')));
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _getCurrentPosition() async {
+    final hasPermission = await handleLocationPermission();
+    if (!hasPermission) return;
+    await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
+        .then((Position position) async {
+      print("==== > ");
+      print("==== > ");
+      print("==== >$position ");
+      await _getAddressFromLatLng(position);
+      setState(() => currentPosition = position);
+    }).catchError((e) {
+      debugPrint(e.toString());
+    });
+  }
+
+  Future<void> _getAddressFromLatLng(Position position) async {
+    await placemarkFromCoordinates(position.latitude, position.longitude)
+        .then((List<Placemark> placemarks) {
+      print("====1 > ");
+      Placemark place = placemarks[0];
+      setState(() {
+        currentAddress =
+            '${place.street}, ${place.subLocality},\n${place.subAdministrativeArea},\n${place.postalCode}';
+
+        print("==== > ");
+        print("==== >$currentAddress ");
+      });
+    }).catchError((e) {
+      print("eeeeee >$e ");
+
+      debugPrint(e);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: CustomAppBar(
         title: 'Home',
-        onPressed: getUserData,
+        onPressed: _getUserData,
       ).appBar(),
       body: Container(
         width: MediaQuery.of(context).size.width,
@@ -160,7 +231,7 @@ class _HomeState extends State<Home> {
                                     right: 0,
                                     child: InkWell(
                                       onTap: () async {
-                                        showPickerOptions(context);
+                                        _showPickerOptions(context);
                                       },
                                       child: Container(
                                         width: 40,
@@ -210,6 +281,11 @@ class _HomeState extends State<Home> {
                                   const SizedBox(
                                     height: 10,
                                   ),
+                                  // Text(
+                                  //     'LAT: ${currentPosition?.latitude ?? ""}'),
+                                  // Text(
+                                  //     'LNG: ${currentPosition?.longitude ?? ""}'),
+                                  // Text('ADDRESS: ${currentAddress ?? ""}'),
                                 ],
                               )
                             ],
@@ -231,6 +307,11 @@ class _HomeState extends State<Home> {
                                     ProfileItem(
                                         title: "Email", value: user.email),
                                     ProfileItem(
+                                      title: "Location",
+                                      value:
+                                          "Lat/Lng ${currentPosition?.latitude ?? ''},${currentPosition?.latitude ?? ''}, \n${currentAddress ?? 'NA'}",
+                                    ),
+                                    ProfileItem(
                                         title: "Phone", value: user.phone),
                                     ProfileItem(
                                         title: "Website", value: user.website),
@@ -239,8 +320,9 @@ class _HomeState extends State<Home> {
                                         value:
                                             "${user.company.name}, ${user.company.catchPhrase}."),
                                     ProfileItem(
-                                        title: "Address",
-                                        value: getAddress(user.address)),
+                                      title: "Address",
+                                      value: _getAddress(user.address),
+                                    ),
                                   ],
                                 ),
                               ),

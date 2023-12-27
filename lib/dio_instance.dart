@@ -15,7 +15,7 @@ class ApiFactory {
       // receiveTimeout: const Duration(seconds: 10),
     ));
 
-    _dio.interceptors.add(LogInterceptor(request: true, responseBody: true));
+    // _dio.interceptors.add(LogInterceptor(request: true, responseBody: true));
   }
 
   Dio get dioInstance => _dio;
